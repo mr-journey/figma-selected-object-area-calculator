@@ -13,6 +13,78 @@ const parsePathData = (pathData: string): { x: number; y: number }[] => {
   
   let currentX = 0;
   let currentY = 0;
+  let startX = 0;
+  let startY = 0;
+  
+  // Adaptive sampling based on path length - more samples for longer paths
+  const getSegmentSamples = (length: number): number => {
+    return Math.max(8, Math.min(32, Math.floor(length / 10)));
+  };
+  
+  // Function to sample points along a cubic bezier curve
+  const sampleCubicBezier = (
+    x0: number, y0: number,
+    x1: number, y1: number, 
+    x2: number, y2: number,
+    x3: number, y3: number,
+    samples: number
+  ): { x: number; y: number }[] => {
+    const curvePoints: { x: number; y: number }[] = [];
+    
+    for (let i = 0; i <= samples; i++) {
+      const t = i / samples;
+      const mt = 1 - t;
+      const mt2 = mt * mt;
+      const mt3 = mt2 * mt;
+      const t2 = t * t;
+      const t3 = t2 * t;
+      
+      const x = mt3 * x0 + 3 * mt2 * t * x1 + 3 * mt * t2 * x2 + t3 * x3;
+      const y = mt3 * y0 + 3 * mt2 * t * y1 + 3 * mt * t2 * y2 + t3 * y3;
+      
+      curvePoints.push({ x, y });
+    }
+    
+    return curvePoints;
+  };
+  
+  // Function to sample points along a quadratic bezier curve
+  const sampleQuadraticBezier = (
+    x0: number, y0: number,
+    x1: number, y1: number,
+    x2: number, y2: number,
+    samples: number
+  ): { x: number; y: number }[] => {
+    const curvePoints: { x: number; y: number }[] = [];
+    
+    for (let i = 0; i <= samples; i++) {
+      const t = i / samples;
+      const mt = 1 - t;
+      const mt2 = mt * mt;
+      const t2 = t * t;
+      
+      const x = mt2 * x0 + 2 * mt * t * x1 + t2 * x2;
+      const y = mt2 * y0 + 2 * mt * t * y1 + t2 * y2;
+      
+      curvePoints.push({ x, y });
+    }
+    
+    return curvePoints;
+  };
+  
+  // Estimate curve length for adaptive sampling
+  const estimateCurveLength = (x0: number, y0: number, x1: number, y1: number, x2: number, y2: number, x3?: number, y3?: number): number => {
+    if (x3 !== undefined && y3 !== undefined) {
+      // Cubic bezier - approximate with control polygon
+      return Math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2) + 
+             Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2) + 
+             Math.sqrt((x3 - x2) ** 2 + (y3 - y2) ** 2);
+    } else {
+      // Quadratic bezier
+      return Math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2) + 
+             Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+    }
+  };
   
   for (const command of commands) {
     const type = command[0].toUpperCase();
@@ -23,9 +95,12 @@ const parsePathData = (pathData: string): { x: number; y: number }[] => {
         if (coords.length >= 2) {
           currentX = coords[0];
           currentY = coords[1];
+          startX = currentX;
+          startY = currentY;
           points.push({ x: currentX, y: currentY });
         }
         break;
+        
       case 'L': // Line to
         if (coords.length >= 2) {
           currentX = coords[0];
@@ -33,17 +108,54 @@ const parsePathData = (pathData: string): { x: number; y: number }[] => {
           points.push({ x: currentX, y: currentY });
         }
         break;
+        
       case 'C': // Cubic bezier curve
         if (coords.length >= 6) {
-          // For area calculation, we'll approximate curves with end points
-          // A more accurate implementation would sample points along the curve
-          currentX = coords[4];
-          currentY = coords[5];
-          points.push({ x: currentX, y: currentY });
+          const x1 = coords[0];
+          const y1 = coords[1];
+          const x2 = coords[2];
+          const y2 = coords[3];
+          const x3 = coords[4];
+          const y3 = coords[5];
+          
+          // Estimate curve length and determine sample count
+          const curveLength = estimateCurveLength(currentX, currentY, x1, y1, x2, y2, x3, y3);
+          const samples = getSegmentSamples(curveLength);
+          
+          // Sample points along the curve (skip first point since it's already added)
+          const curvePoints = sampleCubicBezier(currentX, currentY, x1, y1, x2, y2, x3, y3, samples);
+          points.push(...curvePoints.slice(1));
+          
+          currentX = x3;
+          currentY = y3;
         }
         break;
+        
+      case 'Q': // Quadratic bezier curve
+        if (coords.length >= 4) {
+          const x1 = coords[0];
+          const y1 = coords[1];
+          const x2 = coords[2];
+          const y2 = coords[3];
+          
+          // Estimate curve length and determine sample count
+          const curveLength = estimateCurveLength(currentX, currentY, x1, y1, x2, y2);
+          const samples = getSegmentSamples(curveLength);
+          
+          // Sample points along the curve (skip first point since it's already added)
+          const curvePoints = sampleQuadraticBezier(currentX, currentY, x1, y1, x2, y2, samples);
+          points.push(...curvePoints.slice(1));
+          
+          currentX = x2;
+          currentY = y2;
+        }
+        break;
+        
       case 'Z': // Close path
-        // Path is closed, area calculation will handle this
+        // Close the path by connecting back to start if not already there
+        if (currentX !== startX || currentY !== startY) {
+          points.push({ x: startX, y: startY });
+        }
         break;
     }
   }

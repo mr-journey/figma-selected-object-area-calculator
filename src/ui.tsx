@@ -147,7 +147,7 @@ window.onload = () => {
 
         <div className="section result-section">
           <div className="label">Percentage of Total</div>
-          <div className="percentage-display">{percentage.toFixed(2)}%</div>
+          <div className="percentage-display">{Math.round(percentage)}%</div>
         </div>
       </div>
     );
