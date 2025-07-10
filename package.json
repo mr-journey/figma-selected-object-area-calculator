@@ -1,0 +1,17 @@
+{
+  "name": "figma-pixel-counter",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "node build.js",
+    "watch": "node build.js --watch"
+  },
+  "devDependencies": {
+    "@figma/plugin-typings": "*",
+    "esbuild": "^0.25.5",
+    "fs-extra": "*"
+  },
+  "dependencies": {
+    "chokidar": "^4.0.3",
+    "npm": "^11.4.2"
+  }
+}
