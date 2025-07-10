@@ -6,9 +6,10 @@
     "watch": "node build.js --watch"
   },
   "devDependencies": {
-    "@figma/plugin-typings": "*",
+    "@figma/plugin-typings": "^1.115.0",
     "esbuild": "^0.25.5",
-    "fs-extra": "*"
+    "fs-extra": "*",
+    "typescript": "^5.8.3"
   },
   "dependencies": {
     "chokidar": "^4.0.3",

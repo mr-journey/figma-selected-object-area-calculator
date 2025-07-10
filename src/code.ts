@@ -1,3 +1,5 @@
+/// <reference types="@figma/plugin-typings" />
+
 // This plugin calculates the total pixel area of selected layers and sends it to the UI.
 // It uses a polling mechanism to provide more frequent updates during transformations.
 

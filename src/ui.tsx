@@ -1,6 +1,7 @@
+/// <reference types="@figma/plugin-typings" />
+
 // We will load React and ReactDOM from a CDN, so we don't import them here.
 // This file will be processed as JSX.
-// @ts-nocheck
 
 // --- Load Figma Plugin DS Stylesheet from CDN ---
 const figmaPluginDsCss = document.createElement("link");
