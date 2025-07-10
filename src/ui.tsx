@@ -1,5 +1,6 @@
 // We will load React and ReactDOM from a CDN, so we don't import them here.
 // This file will be processed as JSX.
+// @ts-nocheck
 
 // --- Load Figma Plugin DS Stylesheet from CDN ---
 const figmaPluginDsCss = document.createElement("link");
@@ -121,7 +122,9 @@ window.onload = () => {
         <div className="section">
           <div className="label">Selected Area (geometric)</div>
           <div className="pixel-display">
-            {selectedArea.toLocaleString(undefined, { maximumFractionDigits: 0 })}{" "}
+            {selectedArea.toLocaleString(undefined, {
+              maximumFractionDigits: 0,
+            })}{" "}
             px²
           </div>
         </div>
