@@ -83,8 +83,8 @@ window.onload = () => {
     // Access React hooks from the global React object provided by the CDN script.
     const { useState, useEffect } = React;
 
-    const [pixelCount, setPixelCount] = useState(0);
-    const [totalPixels, setTotalPixels] = useState("");
+    const [selectedArea, setSelectedArea] = useState(0);
+    const [totalArea, setTotalArea] = useState("");
     const [percentage, setPercentage] = useState(0);
 
     // Listen for messages from the plugin's main code
@@ -93,48 +93,48 @@ window.onload = () => {
         if (event.data.pluginMessage) {
           const { type, area } = event.data.pluginMessage;
           if (type === "selectionChange") {
-            setPixelCount(area);
+            setSelectedArea(area);
           }
         }
       };
     }, []);
 
-    // Recalculate percentage whenever pixelCount or totalPixels changes
+    // Recalculate percentage whenever selectedArea or totalArea changes
     useEffect(() => {
-      const numericTotal = parseFloat(totalPixels);
-      if (pixelCount > 0 && numericTotal > 0) {
-        setPercentage((pixelCount / numericTotal) * 100);
+      const numericTotal = parseFloat(totalArea);
+      if (selectedArea > 0 && numericTotal > 0) {
+        setPercentage((selectedArea / numericTotal) * 100);
       } else {
         setPercentage(0);
       }
-    }, [pixelCount, totalPixels]);
+    }, [selectedArea, totalArea]);
 
     // Handler for the "Use Current" button
     const handleUseCurrent = () => {
-      setTotalPixels(pixelCount.toFixed(0));
+      setTotalArea(selectedArea.toFixed(0));
     };
 
     return (
       <div className="container">
-        <h2 className="header">Pixel Counter</h2>
+        <h2 className="header">Area Calculator</h2>
 
         <div className="section">
-          <div className="label">Selected Pixels</div>
+          <div className="label">Selected Area (geometric)</div>
           <div className="pixel-display">
-            {pixelCount.toLocaleString(undefined, { maximumFractionDigits: 0 })}{" "}
-            px
+            {selectedArea.toLocaleString(undefined, { maximumFractionDigits: 0 })}{" "}
+            px²
           </div>
         </div>
 
         <div className="section">
-          <div className="label">Percentage Calculator</div>
+          <div className="label">Area Percentage Calculator</div>
           <div className="input-group">
             <input
               type="number"
               className="input"
-              value={totalPixels}
-              onChange={(e) => setTotalPixels(e.target.value)}
-              placeholder="Total pixels (e.g., 1920*1080)"
+              value={totalArea}
+              onChange={(e) => setTotalArea(e.target.value)}
+              placeholder="Total area (e.g., canvas size)"
             />
             <button
               className="button button--secondary"

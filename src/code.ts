@@ -6,16 +6,160 @@ figma.showUI(__html__, { width: 400, height: 600 });
 let pollingInterval: number | null = null;
 let lastSentArea: number | null = null;
 
+// Helper function to parse SVG path data and extract coordinate points
+const parsePathData = (pathData: string): { x: number; y: number }[] => {
+  const points: { x: number; y: number }[] = [];
+  const commands = pathData.match(/[MLCZ][^MLCZ]*/gi) || [];
+  
+  let currentX = 0;
+  let currentY = 0;
+  
+  for (const command of commands) {
+    const type = command[0].toUpperCase();
+    const coords = command.slice(1).trim().split(/[\s,]+/).map(Number).filter(n => !isNaN(n));
+    
+    switch (type) {
+      case 'M': // Move to
+        if (coords.length >= 2) {
+          currentX = coords[0];
+          currentY = coords[1];
+          points.push({ x: currentX, y: currentY });
+        }
+        break;
+      case 'L': // Line to
+        if (coords.length >= 2) {
+          currentX = coords[0];
+          currentY = coords[1];
+          points.push({ x: currentX, y: currentY });
+        }
+        break;
+      case 'C': // Cubic bezier curve
+        if (coords.length >= 6) {
+          // For area calculation, we'll approximate curves with end points
+          // A more accurate implementation would sample points along the curve
+          currentX = coords[4];
+          currentY = coords[5];
+          points.push({ x: currentX, y: currentY });
+        }
+        break;
+      case 'Z': // Close path
+        // Path is closed, area calculation will handle this
+        break;
+    }
+  }
+  
+  return points;
+};
+
+// Shoelace formula for calculating polygon area
+const calculatePolygonArea = (points: { x: number; y: number }[]): number => {
+  if (points.length < 3) return 0;
+  
+  let area = 0;
+  const n = points.length;
+  
+  for (let i = 0; i < n - 1; i++) {
+    area += points[i].x * points[i + 1].y;
+    area -= points[i + 1].x * points[i].y;
+  }
+  
+  // Close the polygon
+  area += points[n - 1].x * points[0].y;
+  area -= points[0].x * points[n - 1].y;
+  
+  return Math.abs(area) / 2;
+};
+
+// Calculate area for different node types
+const calculateNodeArea = (node: SceneNode): number => {
+  // For vector nodes, use actual geometry
+  if (node.type === 'VECTOR') {
+    const vectorNode = node as VectorNode;
+    
+    try {
+      // Use fillGeometry to get the actual filled areas
+      const fillPaths = vectorNode.fillGeometry;
+      let totalArea = 0;
+      
+      for (const path of fillPaths) {
+        const points = parsePathData(path.data);
+        totalArea += calculatePolygonArea(points);
+      }
+      
+      return totalArea;
+    } catch (error) {
+      console.log('Vector area calculation failed, falling back to bounding box:', error);
+      return Math.max(0, node.width) * Math.max(0, node.height);
+    }
+  }
+  
+  // For ellipse nodes, calculate actual circular area
+  if (node.type === 'ELLIPSE') {
+    const radiusX = Math.max(0, node.width) / 2;
+    const radiusY = Math.max(0, node.height) / 2;
+    return Math.PI * radiusX * radiusY;
+  }
+  
+  // For rectangle nodes, use geometric area (accounting for corner radius if significant)
+  if (node.type === 'RECTANGLE') {
+    const rectNode = node as RectangleNode;
+    const width = Math.max(0, node.width);
+    const height = Math.max(0, node.height);
+    
+    // If there's significant corner radius, we could subtract the corner areas
+    // For now, we'll use the full rectangle area as it's the most common case
+    return width * height;
+  }
+  
+  // For polygon nodes, try to calculate actual polygon area
+  if (node.type === 'POLYGON') {
+    const polygonNode = node as PolygonNode;
+    try {
+      const fillPaths = polygonNode.fillGeometry;
+      let totalArea = 0;
+      
+      for (const path of fillPaths) {
+        const points = parsePathData(path.data);
+        totalArea += calculatePolygonArea(points);
+      }
+      
+      return totalArea;
+    } catch (error) {
+      console.log('Polygon area calculation failed, falling back to bounding box:', error);
+      return Math.max(0, node.width) * Math.max(0, node.height);
+    }
+  }
+  
+  // For star nodes, try to calculate actual star area
+  if (node.type === 'STAR') {
+    const starNode = node as StarNode;
+    try {
+      const fillPaths = starNode.fillGeometry;
+      let totalArea = 0;
+      
+      for (const path of fillPaths) {
+        const points = parsePathData(path.data);
+        totalArea += calculatePolygonArea(points);
+      }
+      
+      return totalArea;
+    } catch (error) {
+      console.log('Star area calculation failed, falling back to bounding box:', error);
+      return Math.max(0, node.width) * Math.max(0, node.height);
+    }
+  }
+  
+  // For all other node types (frames, groups, text, etc.), use bounding box
+  return Math.max(0, node.width) * Math.max(0, node.height);
+};
+
 // This function calculates the current selection's area and sends it to the UI if it has changed.
 const checkAndUpdateSelectionArea = () => {
   const selection = figma.currentPage.selection;
 
   if (selection.length > 0) {
     const totalArea = selection.reduce((sum, layer) => {
-      // Ensure width and height are non-negative
-      const width = Math.max(0, layer.width);
-      const height = Math.max(0, layer.height);
-      return sum + width * height;
+      return sum + calculateNodeArea(layer);
     }, 0);
 
     // To avoid flooding the UI with messages, only post an update if the area has actually changed.
