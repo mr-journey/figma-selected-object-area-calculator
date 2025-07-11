@@ -7,6 +7,29 @@ figma.showUI(__html__, { width: 400, height: 600 });
 
 let pollingInterval: number | null = null;
 let lastSentArea: number | null = null;
+let lastGeometryHash: string | null = null;
+
+// Helper to create a hash of the current selection's geometry for change detection
+const getSelectionGeometryHash = (): string => {
+  const selection = figma.currentPage.selection;
+  return selection
+    .map((node) => {
+      if (node.type === "VECTOR") {
+        const vectorNode = node as VectorNode;
+        try {
+          // Include fillGeometry data in hash to detect bezier changes
+          const pathData = vectorNode.fillGeometry
+            .map((path) => path.data)
+            .join("|");
+          return `${node.id}:${node.width}:${node.height}:${pathData}`;
+        } catch (error) {
+          return `${node.id}:${node.width}:${node.height}:fallback`;
+        }
+      }
+      return `${node.id}:${node.width}:${node.height}:${node.type}`;
+    })
+    .join("||");
+};
 
 // Helper function to parse SVG path data and extract coordinate points
 const parsePathData = (pathData: string): { x: number; y: number }[] => {
@@ -244,95 +267,48 @@ const calculatePolygonArea = (points: { x: number; y: number }[]): number => {
 };
 
 // Calculate area for different node types
-const calculateNodeArea = (node: SceneNode): number => {
-  // For vector nodes, use actual geometry
-  if (node.type === "VECTOR") {
-    const vectorNode = node as VectorNode;
-
+const calculateNodeArea = (
+  node: SceneNode
+): { area: number; usingFallback: boolean } => {
+  // Try to get fillGeometry for any shape that might have it (most shape types do)
+  const tryGeometricCalculation = (
+    shapeNode: any,
+    nodeTypeName: string
+  ): { area: number; usingFallback: boolean } | null => {
     try {
-      // Use fillGeometry to get the actual filled areas
-      const fillPaths = vectorNode.fillGeometry;
-      let totalArea = 0;
-
-      for (const path of fillPaths) {
-        const points = parsePathData(path.data);
-        totalArea += calculatePolygonArea(points);
+      const fillPaths = shapeNode.fillGeometry;
+      if (fillPaths && fillPaths.length > 0) {
+        let totalArea = 0;
+        for (const path of fillPaths) {
+          const points = parsePathData(path.data);
+          totalArea += calculatePolygonArea(points);
+        }
+        return { area: totalArea, usingFallback: false };
       }
-
-      return totalArea;
     } catch (error) {
-      console.log(
-        "Vector area calculation failed, falling back to bounding box:",
-        error
-      );
-      return Math.max(0, node.width) * Math.max(0, node.height);
+      // Silently handle fillGeometry errors
     }
-  }
+    return null;
+  };
 
-  // For ellipse nodes, calculate actual circular area
-  if (node.type === "ELLIPSE") {
-    const radiusX = Math.max(0, node.width) / 2;
-    const radiusY = Math.max(0, node.height) / 2;
-    return Math.PI * radiusX * radiusY;
-  }
-
-  // For rectangle nodes, use geometric area (accounting for corner radius if significant)
-  if (node.type === "RECTANGLE") {
-    const rectNode = node as RectangleNode;
-    const width = Math.max(0, node.width);
-    const height = Math.max(0, node.height);
-
-    // If there's significant corner radius, we could subtract the corner areas
-    // For now, we'll use the full rectangle area as it's the most common case
-    return width * height;
-  }
-
-  // For polygon nodes, try to calculate actual polygon area
-  if (node.type === "POLYGON") {
-    const polygonNode = node as PolygonNode;
-    try {
-      const fillPaths = polygonNode.fillGeometry;
-      let totalArea = 0;
-
-      for (const path of fillPaths) {
-        const points = parsePathData(path.data);
-        totalArea += calculatePolygonArea(points);
-      }
-
-      return totalArea;
-    } catch (error) {
-      console.log(
-        "Polygon area calculation failed, falling back to bounding box:",
-        error
-      );
-      return Math.max(0, node.width) * Math.max(0, node.height);
-    }
-  }
-
-  // For star nodes, try to calculate actual star area
-  if (node.type === "STAR") {
-    const starNode = node as StarNode;
-    try {
-      const fillPaths = starNode.fillGeometry;
-      let totalArea = 0;
-
-      for (const path of fillPaths) {
-        const points = parsePathData(path.data);
-        totalArea += calculatePolygonArea(points);
-      }
-
-      return totalArea;
-    } catch (error) {
-      console.log(
-        "Star area calculation failed, falling back to bounding box:",
-        error
-      );
-      return Math.max(0, node.width) * Math.max(0, node.height);
-    }
+  // For all shape types, try geometric calculation first
+  if (node.type === "VECTOR" || node.type === "RECTANGLE" || node.type === "ELLIPSE" || 
+      node.type === "POLYGON" || node.type === "STAR") {
+    const result = tryGeometricCalculation(node, node.type);
+    if (result) return result;
+    
+    // Only fall back to bounding box if geometric calculation completely fails
+    return {
+      area: Math.max(0, node.width) * Math.max(0, node.height),
+      usingFallback: true,
+    };
   }
 
   // For all other node types (frames, groups, text, etc.), use bounding box
-  return Math.max(0, node.width) * Math.max(0, node.height);
+  return {
+    area: Math.max(0, node.width) * Math.max(0, node.height),
+    usingFallback: false,
+  };
 };
 
 // This function calculates the current selection's area and sends it to the UI if it has changed.
@@ -340,20 +316,46 @@ const checkAndUpdateSelectionArea = () => {
   const selection = figma.currentPage.selection;
 
   if (selection.length > 0) {
-    const totalArea = selection.reduce((sum, layer) => {
-      return sum + calculateNodeArea(layer);
-    }, 0);
+    // Check if the geometry has actually changed
+    const currentGeometryHash = getSelectionGeometryHash();
+    const geometryChanged = currentGeometryHash !== lastGeometryHash;
 
-    // To avoid flooding the UI with messages, only post an update if the area has actually changed.
-    if (totalArea !== lastSentArea) {
-      figma.ui.postMessage({ type: "selectionChange", area: totalArea });
+    let totalArea = 0;
+    let hasFallback = false;
+
+    for (const layer of selection) {
+      const result = calculateNodeArea(layer);
+      totalArea += result.area;
+      if (result.usingFallback) {
+        hasFallback = true;
+      }
+    }
+
+    // Update if area changed OR if geometry changed (even if calculated area is same)
+    // This handles cases where bezier changes might not immediately reflect in area calculation
+    if (
+      totalArea !== lastSentArea ||
+      geometryChanged ||
+      lastSentArea === null
+    ) {
+      figma.ui.postMessage({
+        type: "selectionChange",
+        area: totalArea,
+        hasFallback: hasFallback,
+      });
       lastSentArea = totalArea;
+      lastGeometryHash = currentGeometryHash;
     }
   } else {
     // If nothing is selected, send an area of 0 if the last known state wasn't 0.
     if (lastSentArea !== 0) {
-      figma.ui.postMessage({ type: "selectionChange", area: 0 });
+      figma.ui.postMessage({
+        type: "selectionChange",
+        area: 0,
+        hasFallback: false,
+      });
       lastSentArea = 0;
+      lastGeometryHash = null;
     }
   }
 };

@@ -63,6 +63,18 @@ const styles = `
     color: #096DD9;
     text-align: center;
   }
+  .warning {
+    background-color: #FFF2E8;
+    border: 1px solid #FFD591;
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 8px;
+  }
+  .warning-text {
+    font-size: 12px;
+    color: #AD6800;
+    font-weight: 500;
+  }
 `;
 
 // Inject custom styles into the document head
@@ -88,14 +100,16 @@ window.onload = () => {
     const [selectedArea, setSelectedArea] = useState(0);
     const [totalArea, setTotalArea] = useState("");
     const [percentage, setPercentage] = useState(0);
+    const [hasFallback, setHasFallback] = useState(false);
 
     // Listen for messages from the plugin's main code
     useEffect(() => {
       window.onmessage = (event) => {
         if (event.data.pluginMessage) {
-          const { type, area } = event.data.pluginMessage;
+          const { type, area, hasFallback } = event.data.pluginMessage;
           if (type === "selectionChange") {
             setSelectedArea(area);
+            setHasFallback(hasFallback || false);
           }
         }
       };
@@ -152,6 +166,14 @@ window.onload = () => {
         <div className="section result-section">
           <div className="label">Percentage of Total</div>
           <div className="percentage-display">{Math.round(percentage)}%</div>
+          {hasFallback && (
+            <div className="warning">
+              <div className="warning-text">
+                ⚠️ Some shapes used bounding box calculation instead of
+                geometric area due to complexity or errors.
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
